@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-WORKSPACE = Path(__file__).parent
+WORKSPACE = Path('/home/mohammad/bigdata1404-05')
 FEATURES_DIR = WORKSPACE / "features" / "danaei"
 INPUT_CSV = WORKSPACE / "dataset" / "ADAUSDT.csv"
 REF_CSV = WORKSPACE / "dataset" / "ADAUSDT_with_features.csv"
@@ -63,6 +63,7 @@ FEATURE_MODULES = [
 # ── 1. Load raw OHLCV ────────────────────────────────────────────────────────
 print(f"Loading {INPUT_CSV} …")
 df = pd.read_csv(INPUT_CSV)
+df = df[~df['datetime_utc'].astype(str).str.startswith('2025')].copy()
 print(f"  Rows: {len(df):,}   Columns: {list(df.columns)}")
 
 # ── 2. Apply all 12 features ─────────────────────────────────────────────────
