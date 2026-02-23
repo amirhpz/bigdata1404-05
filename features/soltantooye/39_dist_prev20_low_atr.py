@@ -1,27 +1,32 @@
 """
 Feature: dist_prev20_low_atr
 Class: A (open-domain, signed)
+
 Raw definition:
-    Distance to prior 20-bar low: (C-roll_min(L,20)[t-1])/ATR_14
+    (close - roll_min(low, 20)[-1]) / ATR(14)
+
+Leakage prevention:
+- prior_20_low uses low.shift(1).rolling(20).min() so candle t is excluded.
+
 Normalization policy:
-- Robust z-score (past-only, via utility)
-- Gaussian central-60% clipping to [-0.8416, +0.8416]
-- Fixed scaling to signed range [-1, +1]
+- Robust z-score (past-only) + Gaussian clip + scale to [-1, 1]
 """
+
 from __future__ import annotations
+
 import argparse
 from pathlib import Path
 import pandas as pd
+
 from feature_utils import EPS, add_feature_per_symbol, atr, class_a_signed
+
 
 FEATURE_COL = "dist_prev20_low_atr_scaled_signed_m1_p1"
 
 
-def compute_feature(g: pd.DataFrame, lookback: int, atr_period: int, norm_window: int) -> pd.Series:
-    """Compute feature values for one symbol slice and return final scaled column."""
-    past_low = g["low"].shift(1).rolling(window=lookback, min_periods=lookback).min()
-    dist = g["close"] - past_low
-    raw = dist / (atr(g, atr_period) + EPS)
+def compute_feature(g: pd.DataFrame, sr_lookback: int, atr_period: int, norm_window: int) -> pd.Series:
+    prior_low = g["low"].shift(1).rolling(window=sr_lookback, min_periods=sr_lookback).min()
+    raw = (g["close"] - prior_low) / (atr(g, atr_period) + EPS)
     return class_a_signed(raw, norm_window)
 
 
@@ -29,7 +34,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Feature: dist_prev20_low_atr (Class A signed)")
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--lookback", type=int, default=20)
+    p.add_argument("--sr-lookback", type=int, default=20)
     p.add_argument("--atr-period", type=int, default=14)
     p.add_argument("--norm-window", type=int, default=100)
     args = p.parse_args()
@@ -38,11 +43,11 @@ def main() -> None:
     out = add_feature_per_symbol(
         df,
         FEATURE_COL,
-        lambda g: compute_feature(g, args.lookback, args.atr_period, args.norm_window),
+        lambda g: compute_feature(g, args.sr_lookback, args.atr_period, args.norm_window),
     )
-
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
+
     print(f"Saved: {args.output}")
     print(f"Columns added:\n - {FEATURE_COL}")
 
