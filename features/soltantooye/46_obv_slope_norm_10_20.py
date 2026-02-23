@@ -26,7 +26,7 @@ import pandas as pd
 from feature_utils import EPS, add_feature_per_symbol
 
 
-FEATURE_COL = "obv_slope_norm_10_20_semantic_signed_m1_p1"
+FEATURE_COL = "obv_slope_norm_10_20_semantic_signed"
 
 
 def compute_feature(g: pd.DataFrame, obv_lookback: int, vol_norm_lookback: int) -> pd.Series:

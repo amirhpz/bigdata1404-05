@@ -52,6 +52,14 @@ FEATURES = [
     {
         "script": "46_obv_slope_norm_10_20.py",
         "column": "obv_slope_norm_10_20_semantic_signed"
+    },
+    {
+        "script": "47_ret1_x_relvol20.py",
+        "column": "ret1_x_relvol20_scaled_signed_m1_p1"
+    },
+    {
+        "script": "48_mfi_centered_14.py",
+        "column": "mfi_centered_14_semantic_signed_m1_p1"
     }
 ]
 
