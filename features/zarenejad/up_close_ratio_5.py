@@ -3,7 +3,7 @@ Feature: up_close_ratio_5
 Class: B (bounded semantic frequency)
 
 Raw definition:
-    count(close_i > close_{i-1}, window=5) / 5
+    count(close_{t-k} > close_{t-k-1}, k=1..5) / 5
 
 Normalization policy:
 - No z-score (semantic bounded frequency)
@@ -19,17 +19,22 @@ import pandas as pd
 
 from feature_utils import add_feature_per_symbol
 
-FEATURE_COL = "up_close_ratio_5_scaled_pos_0_1"
+FEATURE_COL = "up_close_ratio_5_semantic_pos_0_1"
 
 
 def compute_feature(g: pd.DataFrame, window: int) -> pd.Series:
-    up = (g["close"] > g["close"].shift(1)).astype(float)
-    raw = up.rolling(window=window, min_periods=window).mean()
+    # up_t uses close_t and close_{t-1} -> depends on current candle's close
+    up_current = (g["close"] > g["close"].shift(1)).astype(float)
+
+    # Make it strictly past-only at time t by shifting by 1
+    up_past_only = up_current.shift(1)
+
+    raw = up_past_only.rolling(window=window, min_periods=window).mean()
     return raw.clip(0.0, 1.0)
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Compute up_close_ratio_5 (Class B bounded).")
+    p = argparse.ArgumentParser(description="Compute up_close_ratio_5 (Class B bounded, past-only).")
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--window", type=int, default=5)

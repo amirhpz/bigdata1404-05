@@ -1,54 +1,43 @@
 """
-Feature script: close_location_value
-
+Feature: close_location_value
 Class: B (bounded semantic position)
+
 Raw/semantic:
     (close - low) / (high - low + eps) -> [0,1]
 
-NO z-score, NO robust z, NO Gaussian clip.
+Rules:
+- NO z-score
+- NO robust z-score
+- NO Gaussian clipping
 
-Output column:
-- close_location_value_pos_0_1
+Output:
+    close_location_value_pos_0_1
 """
 
 from __future__ import annotations
+
 import argparse
 from pathlib import Path
 import pandas as pd
 
-EPS = 1e-12
+from features.feature_utils import add_feature_per_symbol, EPS
 
 
-def close_location_value_pos_0_1(df: pd.DataFrame) -> pd.Series:
+FEATURE_COL = "close_location_value_pos_0_1"
+
+
+def compute_feature(df: pd.DataFrame) -> pd.Series:
     rng = (df["high"] - df["low"])
     x = (df["close"] - df["low"]) / (rng + EPS)
     return x.clip(0.0, 1.0)
 
 
 def build_feature_table(df: pd.DataFrame) -> pd.DataFrame:
-    required_cols = {"high", "low", "close"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    out = df.copy()
-    grouped = out.groupby("symbol", group_keys=False, sort=False) if "symbol" in out.columns else [(None, out)]
-    parts = []
-
-    for _, g in grouped:
-        if "datetime_utc" in g.columns:
-            g = g.sort_values("datetime_utc")
-
-        final = close_location_value_pos_0_1(g)
-        g_out = g.copy()
-        g_out["close_location_value_pos_0_1"] = final
-        parts.append(g_out)
-
-    return pd.concat(parts).sort_index()
+    return add_feature_per_symbol(df, FEATURE_COL, compute_feature)
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Compute close_location_value feature (Class B) bounded in [0,1].")
+    p = argparse.ArgumentParser(description="Compute close_location_value (Class B) -> [0,1].")
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     return p.parse_args()
@@ -60,7 +49,7 @@ def main() -> None:
     out = build_feature_table(df)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
-    print(f"Saved: {args.output}\nColumns added:\n - close_location_value_pos_0_1")
+    print(f"Saved: {args.output}\nColumns added:\n - {FEATURE_COL}")
 
 
 if __name__ == "__main__":

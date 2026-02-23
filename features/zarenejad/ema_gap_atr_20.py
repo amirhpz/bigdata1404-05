@@ -10,44 +10,49 @@ Normalization policy:
 - Gaussian central-60% clipping to [-0.8416, +0.8416]
 - Fixed scaling to signed range [-1, +1]
 """
-
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import pandas as pd
-from feature_utils import EPS, add_feature_per_symbol, atr, class_a_signed
 
+import pandas as pd
+
+from feature_utils import EPS, add_feature_per_symbol, atr, class_a_signed
 
 FEATURE_COL = "ema_gap_atr_20_scaled_signed_m1_p1"
 
 
-def compute_feature(g: pd.DataFrame, ema_period: int, atr_period: int, norm_window: int) -> pd.Series:
-    """Compute feature values for one symbol slice and return final scaled column."""
-    ema = g["close"].ewm(span=ema_period, adjust=False, min_periods=ema_period).mean()
-    raw = (g["close"] - ema) / (atr(g, atr_period) + EPS)
+def ema(series: pd.Series, span: int) -> pd.Series:
+    # Causal EMA; keep warm-up NaNs.
+    return series.ewm(span=span, adjust=False, min_periods=span).mean()
+
+
+def compute_feature(g: pd.DataFrame, norm_window: int) -> pd.Series:
+    e20 = ema(g["close"], span=20)
+    a14 = atr(g, period=14)
+    raw = (g["close"] - e20) / (a14 + EPS)
     return class_a_signed(raw, norm_window)
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Feature: ema_gap_atr_20 (Class A signed)")
+    p = argparse.ArgumentParser(description="Compute ema_gap_atr_20 (Class A signed).")
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--ema-period", type=int, default=20)
-    p.add_argument("--atr-period", type=int, default=14)
     p.add_argument("--norm-window", type=int, default=100)
     args = p.parse_args()
 
     df = pd.read_csv(args.input)
     out = add_feature_per_symbol(
-        df,
-        FEATURE_COL,
-        lambda g: compute_feature(g, args.ema_period, args.atr_period, args.norm_window),
+        df=df,
+        feature_col=FEATURE_COL,
+        compute_fn=lambda g: compute_feature(g, args.norm_window),
     )
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
     print(f"Saved: {args.output}")
-    print(f"Columns added:\n - {FEATURE_COL}")
+    print("Columns added:")
+    print(f" - {FEATURE_COL}")
 
 
 if __name__ == "__main__":

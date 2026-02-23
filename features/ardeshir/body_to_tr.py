@@ -1,68 +1,44 @@
 """
-Feature script: body_to_tr
-
+Feature: body_to_tr
 Class: B (bounded semantic ratio)
+
 Raw/semantic:
-    |close - open| / (TR + eps)  -> bounded in [0,1]
+    |close - open| / (TR + eps)  -> [0,1]
 
 Rules:
 - NO z-score
 - NO robust z-score
 - NO Gaussian clipping
 
-Output column:
-- body_to_tr_pos_0_1
+Output:
+    body_to_tr_pos_0_1
 """
 
 from __future__ import annotations
+
 import argparse
 from pathlib import Path
 import pandas as pd
-import numpy as np
 
-EPS = 1e-12
-
-
-def true_range(df: pd.DataFrame) -> pd.Series:
-    prev_close = df["close"].shift(1)
-    hl = df["high"] - df["low"]
-    hc = (df["high"] - prev_close).abs()
-    lc = (df["low"] - prev_close).abs()
-    return pd.concat([hl, hc, lc], axis=1).max(axis=1)
+from features.feature_utils import true_range, add_feature_per_symbol, EPS
 
 
-def body_to_tr_pos_0_1(df: pd.DataFrame) -> pd.Series:
+FEATURE_COL = "body_to_tr_pos_0_1"
+
+
+def compute_feature(df: pd.DataFrame) -> pd.Series:
     tr = true_range(df)
     body = (df["close"] - df["open"]).abs()
     x = body / (tr + EPS)
-    # bounded semantic ratio; mild safety clipping to [0,1]
     return x.clip(0.0, 1.0)
 
 
 def build_feature_table(df: pd.DataFrame) -> pd.DataFrame:
-    required_cols = {"open", "high", "low", "close"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    out = df.copy()
-    grouped = out.groupby("symbol", group_keys=False, sort=False) if "symbol" in out.columns else [(None, out)]
-    parts = []
-
-    for _, g in grouped:
-        if "datetime_utc" in g.columns:
-            g = g.sort_values("datetime_utc")
-
-        final = body_to_tr_pos_0_1(g)
-        g_out = g.copy()
-        g_out["body_to_tr_pos_0_1"] = final
-        parts.append(g_out)
-
-    return pd.concat(parts).sort_index()
+    return add_feature_per_symbol(df, FEATURE_COL, compute_feature)
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Compute body_to_tr feature (Class B) bounded in [0,1].")
+    p = argparse.ArgumentParser(description="Compute body_to_tr (Class B) -> [0,1].")
     p.add_argument("--input", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     return p.parse_args()
@@ -74,7 +50,7 @@ def main() -> None:
     out = build_feature_table(df)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
-    print(f"Saved: {args.output}\nColumns added:\n - body_to_tr_pos_0_1")
+    print(f"Saved: {args.output}\nColumns added:\n - {FEATURE_COL}")
 
 
 if __name__ == "__main__":
