@@ -35,105 +35,66 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from feature_utils import EPS, add_feature_per_symbol
 
-EPS = 1e-12
+FEATURE_COL = "vol_regime_pct_120"
 
 
-def rolling_vol_20_past_only(df: pd.DataFrame, vol_window: int = 20) -> pd.Series:
-    """
-    Past-only 20-bar rolling volatility of 1-bar log returns.
-
-    vol_20_t = std(ret1_{t-20}..ret1_{t-1}, ddof=1)
-    """
-    log_c = np.log(df["close"] + EPS)
+def _rolling_vol_20(g: pd.DataFrame, vol_window: int = 20) -> pd.Series:
+    """Past-only rolling `vol_window`-bar return volatility."""
+    log_c = np.log(g["close"] + EPS)
     ret1 = log_c.diff(1)
-    past_ret1 = ret1.shift(1)
-    return past_ret1.rolling(window=vol_window, min_periods=vol_window).std(ddof=1)
+    return ret1.shift(1).rolling(window=vol_window, min_periods=vol_window).std(ddof=1)
 
 
-def percentile_rank_past_only(series: pd.Series, window: int = 120) -> pd.Series:
-    """
-    Past-only percentile rank of `series` within the prior `window` values of itself.
-
-    rank_t = count(series_{t-window}..series_{t-1} <= series_t) / window
-    """
+def _percentile_rank(series: pd.Series, window: int = 120) -> pd.Series:
+    """Past-only percentile rank of series within prior `window` values."""
     vals = series.values
     n = len(vals)
     result = np.full(n, np.nan)
-
     for i in range(window, n):
         current = vals[i]
         if np.isnan(current):
             continue
         past = vals[i - window: i]
-        valid_past = past[~np.isnan(past)]
-        if len(valid_past) == 0:
+        valid = past[~np.isnan(past)]
+        if len(valid) == 0:
             continue
-        result[i] = np.sum(valid_past <= current) / window
-
+        result[i] = np.sum(valid <= current) / window
     return pd.Series(result, index=series.index)
+
+
+def compute_feature(g: pd.DataFrame, vol_window: int = 20, pct_window: int = 120) -> pd.Series:
+    """Percentile of rolling vol over `pct_window` bars."""
+    vol_20 = _rolling_vol_20(g, vol_window=vol_window)
+    return _percentile_rank(vol_20, window=pct_window)
 
 
 def build_feature_table(
     df: pd.DataFrame, vol_window: int = 20, pct_window: int = 120
 ) -> pd.DataFrame:
-    """
-    Append final feature column to the original dataset (no overwriting core OHLCV).
-
-    Output column:
-    - vol_regime_pct_120  (bounded semantic in [0, 1])
-    """
-    required_cols = {"open", "high", "low", "close", "volume"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    out = df.copy()
-
-    if "symbol" in out.columns:
-        grouped = out.groupby("symbol", group_keys=False, sort=False)
-    else:
-        grouped = [(None, out)]
-
-    parts = []
-    for _, g in grouped:
-        if "datetime_utc" in g.columns:
-            g = g.sort_values("datetime_utc")
-
-        vol_20 = rolling_vol_20_past_only(g, vol_window=vol_window)
-        final = percentile_rank_past_only(vol_20, window=pct_window)
-
-        g_out = g.copy()
-        g_out["vol_regime_pct_120"] = final
-        parts.append(g_out)
-
-    return pd.concat(parts).sort_index()
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Compute vol_regime_pct_120 (Class B) — percentile of 20-bar vol over 120 bars in [0, 1]."
+    return add_feature_per_symbol(
+        df, FEATURE_COL, lambda g: compute_feature(g, vol_window, pct_window)
     )
-    p.add_argument("--input", type=Path, required=True,
-                   help="Input CSV with OHLCV columns.")
-    p.add_argument("--output", type=Path, required=True,
-                   help="Output CSV path.")
-    p.add_argument("--vol-window", type=int, default=20,
-                   help="Rolling vol window (default: 20).")
-    p.add_argument("--pct-window", type=int, default=120,
-                   help="Percentile lookback window (default: 120).")
-    return p.parse_args()
 
 
 def main() -> None:
-    args = parse_args()
+    p = argparse.ArgumentParser(
+        description="Compute vol_regime_pct_120 (Class B) — percentile of 20-bar vol over 120 bars in [0, 1]."
+    )
+    p.add_argument("--input", type=Path, required=True)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--vol-window", type=int, default=20)
+    p.add_argument("--pct-window", type=int, default=120)
+    args = p.parse_args()
+
     df = pd.read_csv(args.input)
     out = build_feature_table(
         df, vol_window=args.vol_window, pct_window=args.pct_window)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
     print(f"Saved: {args.output}")
-    print("Columns added:\n - vol_regime_pct_120")
+    print(f"Columns added:\n - {FEATURE_COL}")
 
 
 if __name__ == "__main__":
