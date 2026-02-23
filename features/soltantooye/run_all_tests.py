@@ -159,8 +159,8 @@ def test_feature(feature_column: str, test_output: Path, reference_file: Path) -
 
 def main():
     # Configuration
-    INPUT_FILE = Path("../../dataset/ADAUSDT.csv")
-    REFERENCE_FILE = Path("../../dataset/ADAUSDT_with_features.csv")
+    INPUT_FILE = Path("../../dataset-v1/ADAUSDT.csv")
+    REFERENCE_FILE = Path("../../dataset-v1/ADAUSDT_with_features.csv")
     TEST_OUTPUT = Path("test_output.csv")
     
     print("="*80)
