@@ -35,90 +35,43 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+from feature_utils import EPS, add_feature_per_symbol
 
-EPS = 1e-12
+FEATURE_COL = "percent_b_20"
 BB_MULTIPLIER = 2.0
 
 
-def bollinger_bands_past_only(df: pd.DataFrame, window: int = 20, num_std: float = BB_MULTIPLIER):
-    """
-    Past-only Bollinger Bands (SMA +/- num_std * sigma).
-
-    Returns (bb_up, bb_dn) as pd.Series pair.
-    """
-    past_close = df["close"].shift(1)
+def compute_feature(g: pd.DataFrame, window: int = 20) -> pd.Series:
+    """Bollinger Band %B transformed to [-1, 1]."""
+    past_close = g["close"].shift(1)
     sma = past_close.rolling(window=window, min_periods=window).mean()
     std = past_close.rolling(window=window, min_periods=window).std(ddof=1)
-    bb_up = sma + num_std * std
-    bb_dn = sma - num_std * std
-    return bb_up, bb_dn
-
-
-def percent_b_20(df: pd.DataFrame, window: int = 20) -> pd.Series:
-    """
-    Bollinger Band %B transformed to [-1, 1].
-
-    pct_b_raw  = (close - BB_dn) / (BB_up - BB_dn + eps)     ∈ [0, 1]
-    percent_b  = 2 * (pct_b_raw - 0.5)                       ∈ [-1, 1]
-    """
-    bb_up, bb_dn = bollinger_bands_past_only(df, window=window)
-    pct_b_raw = (df["close"] - bb_dn) / ((bb_up - bb_dn) + EPS)
+    bb_up = sma + BB_MULTIPLIER * std
+    bb_dn = sma - BB_MULTIPLIER * std
+    pct_b_raw = (g["close"] - bb_dn) / ((bb_up - bb_dn) + EPS)
     raw_signed = 2.0 * (pct_b_raw - 0.5)
     return raw_signed.clip(lower=-1.0, upper=1.0)
 
 
 def build_feature_table(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
-    """
-    Append final feature column to the original dataset (no overwriting core OHLCV).
-
-    Output column:
-    - percent_b_20  (bounded semantic in [-1, 1])
-    """
-    required_cols = {"open", "high", "low", "close", "volume"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    out = df.copy()
-
-    if "symbol" in out.columns:
-        grouped = out.groupby("symbol", group_keys=False, sort=False)
-    else:
-        grouped = [(None, out)]
-
-    parts = []
-    for _, g in grouped:
-        if "datetime_utc" in g.columns:
-            g = g.sort_values("datetime_utc")
-
-        g_out = g.copy()
-        g_out["percent_b_20"] = percent_b_20(g, window=window)
-        parts.append(g_out)
-
-    return pd.concat(parts).sort_index()
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Compute percent_b_20 (Class B) — Bollinger Band %B transformed to [-1, 1]."
-    )
-    p.add_argument("--input", type=Path, required=True,
-                   help="Input CSV with OHLCV columns.")
-    p.add_argument("--output", type=Path, required=True,
-                   help="Output CSV path.")
-    p.add_argument("--window", type=int, default=20,
-                   help="Bollinger Band lookback (default: 20).")
-    return p.parse_args()
+    return add_feature_per_symbol(df, FEATURE_COL, lambda g: compute_feature(g, window))
 
 
 def main() -> None:
-    args = parse_args()
+    p = argparse.ArgumentParser(
+        description="Compute percent_b_20 (Class B) — Bollinger Band %B transformed to [-1, 1]."
+    )
+    p.add_argument("--input", type=Path, required=True)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--window", type=int, default=20)
+    args = p.parse_args()
+
     df = pd.read_csv(args.input)
     out = build_feature_table(df, window=args.window)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
     print(f"Saved: {args.output}")
-    print("Columns added:\n - percent_b_20")
+    print(f"Columns added:\n - {FEATURE_COL}")
 
 
 if __name__ == "__main__":

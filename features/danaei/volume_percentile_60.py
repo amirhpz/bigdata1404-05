@@ -31,79 +31,41 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from feature_utils import add_feature_per_symbol
+
+FEATURE_COL = "volume_percentile_60"
 
 
-def volume_percentile_60(df: pd.DataFrame, window: int = 60) -> pd.Series:
-    """
-    Past-only volume percentile rank in [0, 1].
-
-    percentile_t = fraction of past `window` volumes <= current volume.
-    """
-    vol = df["volume"].values
+def compute_feature(g: pd.DataFrame, window: int = 60) -> pd.Series:
+    """Past-only volume percentile rank in [0, 1]."""
+    vol = g["volume"].values
     n = len(vol)
     result = np.full(n, np.nan)
-
     for i in range(window, n):
-        # exactly the prior `window` values
         past = vol[i - window: i]
-        current = vol[i]
-        result[i] = np.sum(past <= current) / window
-
-    return pd.Series(result, index=df.index)
+        result[i] = np.sum(past <= vol[i]) / window
+    return pd.Series(result, index=g.index)
 
 
 def build_feature_table(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
-    """
-    Append final feature column to the original dataset (no overwriting core OHLCV).
-
-    Output column:
-    - volume_percentile_60  (bounded semantic in [0, 1])
-    """
-    required_cols = {"open", "high", "low", "close", "volume"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    out = df.copy()
-
-    if "symbol" in out.columns:
-        grouped = out.groupby("symbol", group_keys=False, sort=False)
-    else:
-        grouped = [(None, out)]
-
-    parts = []
-    for _, g in grouped:
-        if "datetime_utc" in g.columns:
-            g = g.sort_values("datetime_utc")
-
-        g_out = g.copy()
-        g_out["volume_percentile_60"] = volume_percentile_60(g, window=window)
-        parts.append(g_out)
-
-    return pd.concat(parts).sort_index()
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Compute volume_percentile_60 (Class B) — past-only volume percentile rank in [0, 1]."
-    )
-    p.add_argument("--input", type=Path, required=True,
-                   help="Input CSV with OHLCV columns.")
-    p.add_argument("--output", type=Path, required=True,
-                   help="Output CSV path.")
-    p.add_argument("--window", type=int, default=60,
-                   help="Lookback window for percentile rank (default: 60).")
-    return p.parse_args()
+    return add_feature_per_symbol(df, FEATURE_COL, lambda g: compute_feature(g, window))
 
 
 def main() -> None:
-    args = parse_args()
+    p = argparse.ArgumentParser(
+        description="Compute volume_percentile_60 (Class B) — past-only volume percentile rank in [0, 1]."
+    )
+    p.add_argument("--input", type=Path, required=True)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--window", type=int, default=60)
+    args = p.parse_args()
+
     df = pd.read_csv(args.input)
     out = build_feature_table(df, window=args.window)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(args.output, index=False)
     print(f"Saved: {args.output}")
-    print("Columns added:\n - volume_percentile_60")
+    print(f"Columns added:\n - {FEATURE_COL}")
 
 
 if __name__ == "__main__":
