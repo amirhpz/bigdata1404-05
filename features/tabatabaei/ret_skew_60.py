@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from feature_utils import EPS, add_feature_per_symbol, class_a_signed
 
@@ -29,8 +30,8 @@ FEATURE_COL = "ret_skew_60_scaled_signed_m1_p1"
 
 def compute_feature(g: pd.DataFrame, lookback: int, norm_window: int) -> pd.Series:
     """Compute Class A skewness of returns for one symbol slice."""
-    prev_close = g["close"].shift(1)
-    ret1 = (g["close"] / (prev_close + EPS)) - 1.0
+    # Use log-return to keep consistency with the project's return-based features.
+    ret1 = np.log((g["close"] + EPS) / (g["close"].shift(1) + EPS))
 
     # Past-only rolling skew to avoid leakage (t uses returns t-lookback .. t-1).
     raw = ret1.shift(1).rolling(window=lookback, min_periods=lookback).skew()
